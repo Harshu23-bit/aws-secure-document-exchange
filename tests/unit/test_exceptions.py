@@ -63,9 +63,7 @@ async def test_unhandled_exception_does_not_expose_exception_details(
         assert secret_message not in response.body.decode()
 
         exception_records = [
-            record
-            for record in caplog.records
-            if record.name == "app.exceptions"
+            record for record in caplog.records if record.name == "app.exceptions"
         ]
         assert len(exception_records) == 1
         assert exception_records[0].exc_info is not None

@@ -2,11 +2,10 @@ import hashlib
 import logging
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
-
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
@@ -60,9 +59,7 @@ def get_config():
         shard_count = int(os.environ.get("SHARD_COUNT", "4"))
         max_items = int(os.environ.get("MAX_ITEMS", "50"))
     except ValueError as exc:
-        raise ConfigurationError(
-            "SHARD_COUNT and MAX_ITEMS must be integers"
-        ) from exc
+        raise ConfigurationError("SHARD_COUNT and MAX_ITEMS must be integers") from exc
 
     if not 1 <= shard_count <= MAX_SHARD_COUNT:
         raise ConfigurationError("Invalid SHARD_COUNT")
@@ -97,14 +94,12 @@ def parse_utc_timestamp(value):
     try:
         parsed = datetime.strptime(value, TIMESTAMP_FORMAT)
     except ValueError as exc:
-        raise CandidateValidationError(
-            "Invalid timestamp"
-        ) from exc
+        raise CandidateValidationError("Invalid timestamp") from exc
 
     if parsed.strftime(TIMESTAMP_FORMAT) != value:
         raise CandidateValidationError("Noncanonical timestamp")
 
-    return parsed.replace(tzinfo=timezone.utc)
+    return parsed.replace(tzinfo=UTC)
 
 
 def get_document_cleanup_shard(document_id, shard_count):
@@ -142,9 +137,7 @@ def decode_number_attribute(item, name):
     try:
         number = int(raw)
     except ValueError as exc:
-        raise CandidateValidationError(
-            f"Invalid {name}"
-        ) from exc
+        raise CandidateValidationError(f"Invalid {name}") from exc
 
     return number
 
@@ -194,14 +187,11 @@ def validate_candidate(item, shard, shard_count, now):
     gsi4pk = decode_string_attribute(item, "GSI4PK")
     gsi4sk = decode_string_attribute(item, "GSI4SK")
 
-    expected_pk = (
-        f"TENANT#{tenant_id}#SUBMISSION#{submission_id}"
-    )
+    expected_pk = f"TENANT#{tenant_id}#SUBMISSION#{submission_id}"
     expected_sk = f"DOCUMENT#{document_id}"
 
     expected_object_key = (
-        f"tenants/{tenant_id}/submissions/"
-        f"{submission_id}/{document_id}"
+        f"tenants/{tenant_id}/submissions/{submission_id}/{document_id}"
     )
 
     expected_shard = get_document_cleanup_shard(
@@ -363,28 +353,28 @@ def get_exact_key_versions(page, object_key):
             version_id = version.get("VersionId")
 
             if not isinstance(version_id, str):
-                raise S3CleanupError(
-                    "S3 returned a version without a version ID"
-                )
+                raise S3CleanupError("S3 returned a version without a version ID")
 
-            objects.append({
-                "Key": object_key,
-                "VersionId": version_id,
-            })
+            objects.append(
+                {
+                    "Key": object_key,
+                    "VersionId": version_id,
+                }
+            )
 
     for marker in page.get("DeleteMarkers", []):
         if marker.get("Key") == object_key:
             version_id = marker.get("VersionId")
 
             if not isinstance(version_id, str):
-                raise S3CleanupError(
-                    "S3 returned a delete marker without a version ID"
-                )
+                raise S3CleanupError("S3 returned a delete marker without a version ID")
 
-            objects.append({
-                "Key": object_key,
-                "VersionId": version_id,
-            })
+            objects.append(
+                {
+                    "Key": object_key,
+                    "VersionId": version_id,
+                }
+            )
 
     return objects
 
@@ -422,14 +412,12 @@ def delete_exact_key_versions(
             errors = response.get("Errors", [])
 
             if errors:
-                error_codes = sorted({
-                    str(error.get("Code", "Unknown"))[:64]
-                    for error in errors
-                })
+                error_codes = sorted(
+                    {str(error.get("Code", "Unknown"))[:64] for error in errors}
+                )
 
                 raise S3CleanupError(
-                    "S3 version deletion failed: "
-                    + ",".join(error_codes)
+                    "S3 version deletion failed: " + ",".join(error_codes)
                 )
 
         if not page.get("IsTruncated", False):
@@ -439,9 +427,7 @@ def delete_exact_key_versions(
         next_version_marker = page.get("NextVersionIdMarker")
 
         if not next_key_marker:
-            raise S3CleanupError(
-                "S3 returned truncated results without a key marker"
-            )
+            raise S3CleanupError("S3 returned truncated results without a key marker")
 
         key_marker = next_key_marker
         version_id_marker = next_version_marker
@@ -500,7 +486,8 @@ def transition_cleanup_complete(
         datetime.strptime(
             timestamp,
             TIMESTAMP_FORMAT,
-        ).replace(tzinfo=timezone.utc) + timedelta(hours=24)
+        ).replace(tzinfo=UTC)
+        + timedelta(hours=24)
     )
 
     shard = candidate["shard"]
@@ -539,9 +526,7 @@ def transition_cleanup_complete(
                 ":document": {"S": "DOCUMENT"},
                 ":object_key": {"S": candidate["object_key"]},
                 ":gsi4pk": {"S": f"CLEANUP_COMPLETE#{shard:02d}"},
-                ":gsi4sk": {
-                    "S": f"{finalize_after}#{candidate['document_id']}"
-                },
+                ":gsi4sk": {"S": f"{finalize_after}#{candidate['document_id']}"},
                 ":completed_at": {"S": completed_at},
                 ":finalize_after": {"S": finalize_after},
                 ":pending_gsi4pk": {"S": candidate["gsi4pk"]},
@@ -579,13 +564,10 @@ def record_cleanup_error(
             "SK": {"S": candidate["sk"]},
         },
         UpdateExpression=(
-            "SET last_cleanup_error = :error, "
-            "last_cleanup_error_at = :timestamp"
+            "SET last_cleanup_error = :error, last_cleanup_error_at = :timestamp"
         ),
         ConditionExpression=(
-            "#status = :pending "
-            "AND GSI4PK = :gsi4pk "
-            "AND GSI4SK = :gsi4sk"
+            "#status = :pending AND GSI4PK = :gsi4pk AND GSI4SK = :gsi4sk"
         ),
         ExpressionAttributeNames={
             "#status": "status",
@@ -633,15 +615,11 @@ def cleanup_candidate(
             config["bucket_name"],
             candidate["object_key"],
         ):
-            raise S3CleanupError(
-                "S3 object versions remain after deletion"
-            )
+            raise S3CleanupError("S3 object versions remain after deletion")
 
     except (S3CleanupError, ClientError, BotoCoreError) as exc:
         if isinstance(exc, ClientError):
-            error_code = exc.response.get(
-                "Error", {}
-            ).get("Code", "S3ClientError")
+            error_code = exc.response.get("Error", {}).get("Code", "S3ClientError")
         elif isinstance(exc, BotoCoreError):
             error_code = type(exc).__name__
         else:
@@ -713,9 +691,7 @@ def query_cleanup_shard(
         arguments = {
             "TableName": config["table_name"],
             "IndexName": config["index_name"],
-            "KeyConditionExpression": (
-                "#gsi_pk = :shard AND #gsi_sk <= :cutoff"
-            ),
+            "KeyConditionExpression": ("#gsi_pk = :shard AND #gsi_sk <= :cutoff"),
             "ExpressionAttributeNames": {
                 "#gsi_pk": "GSI4PK",
                 "#gsi_sk": "GSI4SK",
@@ -749,7 +725,7 @@ def query_cleanup_shard(
         items = response.get("Items", [])
 
         if not isinstance(items, list):
-            raise RuntimeError("DynamoDB returned an invalid query result")
+            raise TypeError("DynamoDB returned an invalid query result")
 
         for item in items:
             if result["processed"] >= max_items:
@@ -864,7 +840,7 @@ def handler(event, context):
         region_name=region,
     )
 
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = datetime.now(UTC).replace(microsecond=0)
 
     result = cleanup_pending_documents(
         dynamodb=dynamodb,
@@ -885,9 +861,7 @@ def handler(event, context):
     )
 
     if result["failed"] > 0:
-        raise RuntimeError(
-            f"{result['failed']} document cleanup operation(s) failed"
-        )
+        raise RuntimeError(f"{result['failed']} document cleanup operation(s) failed")
 
     return {
         "status": "success",

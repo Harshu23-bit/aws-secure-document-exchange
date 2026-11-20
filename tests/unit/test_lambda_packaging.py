@@ -39,7 +39,7 @@ def test_package_lambda_creates_valid_archive(monkeypatch, tmp_path):
 
 
 def test_package_lambda_is_reproducible(monkeypatch, tmp_path):
-    build_dir = configure_test_paths(monkeypatch, tmp_path)
+    configure_test_paths(monkeypatch, tmp_path)
 
     source = tmp_path / "handler.py"
     source.write_text("VALUE = 42\n")

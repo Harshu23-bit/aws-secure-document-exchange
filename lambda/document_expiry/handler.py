@@ -2,11 +2,10 @@ import hashlib
 import logging
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import boto3
 from botocore.exceptions import ClientError
-
 
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
@@ -46,24 +45,16 @@ def get_config() -> dict:
         raise ConfigurationError("Invalid EXPIRY_INDEX")
 
     try:
-        shard_count = int(
-            os.environ.get("SHARD_COUNT", str(DEFAULT_SHARD_COUNT))
-        )
-        max_items = int(
-            os.environ.get("MAX_ITEMS", str(DEFAULT_MAX_ITEMS))
-        )
+        shard_count = int(os.environ.get("SHARD_COUNT", str(DEFAULT_SHARD_COUNT)))
+        max_items = int(os.environ.get("MAX_ITEMS", str(DEFAULT_MAX_ITEMS)))
     except ValueError as exc:
-        raise ConfigurationError(
-            "Invalid numeric Lambda configuration"
-        ) from exc
+        raise ConfigurationError("Invalid numeric Lambda configuration") from exc
 
     if not 1 <= shard_count <= 16:
         raise ConfigurationError("SHARD_COUNT must be between 1 and 16")
 
     if not 1 <= max_items <= MAX_ALLOWED_ITEMS:
-        raise ConfigurationError(
-            f"MAX_ITEMS must be between 1 and {MAX_ALLOWED_ITEMS}"
-        )
+        raise ConfigurationError(f"MAX_ITEMS must be between 1 and {MAX_ALLOWED_ITEMS}")
 
     return {
         "table_name": table_name,
@@ -89,21 +80,15 @@ def parse_canonical_utc_timestamp(value: object) -> datetime:
         raise CandidateValidationError("Invalid expiry timestamp")
 
     try:
-        parsed = datetime.fromisoformat(
-            value[:-1] + "+00:00"
-        )
+        parsed = datetime.fromisoformat(value)
     except ValueError as exc:
-        raise CandidateValidationError(
-            "Invalid expiry timestamp"
-        ) from exc
+        raise CandidateValidationError("Invalid expiry timestamp") from exc
 
     if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
         raise CandidateValidationError("Expiry timestamp is not UTC")
 
     if format_utc_timestamp(parsed) != value:
-        raise CandidateValidationError(
-            "Expiry timestamp is not canonical"
-        )
+        raise CandidateValidationError("Expiry timestamp is not canonical")
 
     return parsed
 
@@ -114,9 +99,7 @@ def get_document_expiry_shard(
 ) -> int:
     """Reproduce the application's deterministic expiry shard."""
 
-    digest = hashlib.sha256(
-        document_id.encode("utf-8")
-    ).digest()
+    digest = hashlib.sha256(document_id.encode("utf-8")).digest()
 
     return digest[0] % shard_count
 
@@ -127,26 +110,17 @@ def decode_number_attribute(item: dict, name: str) -> int:
     attribute = item.get(name)
 
     if not isinstance(attribute, dict):
-        raise CandidateValidationError(
-            f"Missing {name}"
-        )
+        raise CandidateValidationError(f"Missing {name}")
 
     value = attribute.get("N")
 
-    if (
-        not isinstance(value, str)
-        or not re.fullmatch(r"[1-9][0-9]*", value)
-    ):
-        raise CandidateValidationError(
-            f"Invalid {name}"
-        )
+    if not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]*", value):
+        raise CandidateValidationError(f"Invalid {name}")
 
     number = int(value)
 
     if number > MAX_DOCUMENT_SIZE:
-        raise CandidateValidationError(
-            f"{name} exceeds the document size limit"
-        )
+        raise CandidateValidationError(f"{name} exceeds the document size limit")
 
     return number
 
@@ -157,16 +131,12 @@ def decode_string_attribute(item: dict, name: str) -> str:
     attribute = item.get(name)
 
     if not isinstance(attribute, dict):
-        raise CandidateValidationError(
-            f"Missing {name}"
-        )
+        raise CandidateValidationError(f"Missing {name}")
 
     value = attribute.get("S")
 
     if not isinstance(value, str) or not value:
-        raise CandidateValidationError(
-            f"Invalid {name}"
-        )
+        raise CandidateValidationError(f"Invalid {name}")
 
     return value
 
@@ -203,13 +173,10 @@ def validate_candidate(
     if status != "PENDING_UPLOAD":
         raise CandidateValidationError("Candidate is not pending")
 
-    expected_document_pk = (
-        f"TENANT#{tenant_id}#SUBMISSION#{submission_id}"
-    )
+    expected_document_pk = f"TENANT#{tenant_id}#SUBMISSION#{submission_id}"
     expected_document_sk = f"DOCUMENT#{document_id}"
     expected_object_key = (
-        f"tenants/{tenant_id}/submissions/"
-        f"{submission_id}/{document_id}"
+        f"tenants/{tenant_id}/submissions/{submission_id}/{document_id}"
     )
 
     if object_key != expected_object_key:
@@ -393,8 +360,7 @@ def is_expected_transaction_cancellation(exc: ClientError) -> bool:
     failure_codes = {
         reason.get("Code")
         for reason in reasons
-        if isinstance(reason, dict)
-        and reason.get("Code") not in (None, "None")
+        if isinstance(reason, dict) and reason.get("Code") not in (None, "None")
     }
 
     if not failure_codes:
@@ -440,9 +406,7 @@ def transition_expired_candidate(
             error_code == "TransactionCanceledException"
             and is_expected_transaction_cancellation(exc)
         ):
-            logger.info(
-                "Skipped stale or concurrently modified expiry candidate"
-            )
+            logger.info("Skipped stale or concurrently modified expiry candidate")
             return False
 
         raise
@@ -496,10 +460,7 @@ def query_shard(
         query_arguments = {
             "TableName": table_name,
             "IndexName": index_name,
-            "KeyConditionExpression": (
-                "#gsi_pk = :shard "
-                "AND #gsi_sk <= :cutoff_key"
-            ),
+            "KeyConditionExpression": ("#gsi_pk = :shard AND #gsi_sk <= :cutoff_key"),
             "ExpressionAttributeNames": {
                 "#gsi_pk": "GSI3PK",
                 "#gsi_sk": "GSI3SK",
@@ -525,16 +486,14 @@ def query_shard(
         }
 
         if exclusive_start_key:
-            query_arguments["ExclusiveStartKey"] = (
-                exclusive_start_key
-            )
+            query_arguments["ExclusiveStartKey"] = exclusive_start_key
 
         response = dynamodb.query(**query_arguments)
 
         items = response.get("Items", [])
 
         if not isinstance(items, list):
-            raise RuntimeError("DynamoDB returned an invalid query result")
+            raise TypeError("DynamoDB returned an invalid query result")
 
         for item in items:
             if processed >= max_items:
@@ -606,9 +565,7 @@ def cleanup_expired_documents(
             index_name=config["index_name"],
             shard=shard,
             shard_count=config["shard_count"],
-            max_items=(
-                config["max_items"] - totals["processed"]
-            ),
+            max_items=(config["max_items"] - totals["processed"]),
             now=now,
             context=context,
         )
@@ -629,7 +586,7 @@ def handler(event, context):
         region_name=os.environ.get("AWS_REGION"),
     )
 
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = datetime.now(UTC).replace(microsecond=0)
 
     result = cleanup_expired_documents(
         dynamodb=dynamodb,

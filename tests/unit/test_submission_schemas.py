@@ -4,7 +4,6 @@ from pydantic import ValidationError
 from app.schemas.submission import SubmissionListItem, SubmissionResponse
 from app.schemas.workflow import SubmissionStatus
 
-
 VALID_STATUSES = list(SubmissionStatus)
 
 
@@ -36,9 +35,7 @@ def submission_list_item_data():
 
 
 @pytest.mark.parametrize("status", VALID_STATUSES)
-def test_submission_response_accepts_valid_statuses(
-    submission_response_data, status
-):
+def test_submission_response_accepts_valid_statuses(submission_response_data, status):
     submission_response_data["status"] = status.value
 
     result = SubmissionResponse.model_validate(submission_response_data)
@@ -47,9 +44,7 @@ def test_submission_response_accepts_valid_statuses(
 
 
 @pytest.mark.parametrize("status", VALID_STATUSES)
-def test_submission_list_item_accepts_valid_statuses(
-    submission_list_item_data, status
-):
+def test_submission_list_item_accepts_valid_statuses(submission_list_item_data, status):
     submission_list_item_data["status"] = status.value
 
     result = SubmissionListItem.model_validate(submission_list_item_data)

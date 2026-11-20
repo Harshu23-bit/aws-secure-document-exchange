@@ -1,6 +1,6 @@
+import os
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
-import os
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD_DIR = ROOT / "build"
@@ -16,9 +16,7 @@ FUNCTIONS = {
 
 def package_lambda(name: str, source: Path) -> Path:
     if not source.is_file():
-        raise FileNotFoundError(
-            f"Lambda source does not exist: {source}"
-        )
+        raise FileNotFoundError(f"Lambda source does not exist: {source}")
 
     output = BUILD_DIR / f"{name}.zip"
     temporary = BUILD_DIR / f"{name}.zip.tmp"
@@ -37,14 +35,10 @@ def package_lambda(name: str, source: Path) -> Path:
 
         with ZipFile(temporary, "r") as archive:
             if archive.testzip() is not None:
-                raise RuntimeError(
-                    f"ZIP integrity check failed: {name}"
-                )
+                raise RuntimeError(f"ZIP integrity check failed: {name}")
 
             if archive.namelist() != ["handler.py"]:
-                raise RuntimeError(
-                    f"Unexpected ZIP contents: {name}"
-                )
+                raise RuntimeError(f"Unexpected ZIP contents: {name}")
 
         os.replace(temporary, output)
 

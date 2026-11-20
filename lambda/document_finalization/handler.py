@@ -3,23 +3,17 @@ import json
 import logging
 import os
 import re
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import boto3
 from botocore.exceptions import ClientError
-
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
-TIMESTAMP_PATTERN = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
-)
-IDENTIFIER_PATTERN = re.compile(
-    r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-)
+TIMESTAMP_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 S3_PAGE_SIZE = 1000
 TIME_BUFFER_MS = 5000
@@ -45,7 +39,7 @@ class S3InspectionError(RuntimeError):
 
 def parse_utc_timestamp(value):
     if not isinstance(value, str):
-        raise ValueError("Timestamp must be a string")
+        raise TypeError("Timestamp must be a string")
 
     if not TIMESTAMP_PATTERN.fullmatch(value):
         raise ValueError("Timestamp must use canonical UTC format")
@@ -55,23 +49,22 @@ def parse_utc_timestamp(value):
     except ValueError as exc:
         raise ValueError("Invalid UTC timestamp") from exc
 
-    return parsed.replace(tzinfo=timezone.utc)
+    return parsed.replace(tzinfo=UTC)
 
 
 def format_utc_timestamp(value):
     if not isinstance(value, datetime):
-        raise ValueError("Expected datetime")
+        raise TypeError("Expected datetime")
 
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("Datetime must be timezone-aware")
 
-    return value.astimezone(timezone.utc).strftime(TIMESTAMP_FORMAT)
+    return value.astimezone(UTC).strftime(TIMESTAMP_FORMAT)
 
 
 def get_document_cleanup_shard(document_id, shard_count):
-    if (
-        not isinstance(document_id, str)
-        or not IDENTIFIER_PATTERN.fullmatch(document_id)
+    if not isinstance(document_id, str) or not IDENTIFIER_PATTERN.fullmatch(
+        document_id
     ):
         raise ValueError("Invalid document ID")
 
@@ -90,16 +83,12 @@ def _string_attribute(item, name):
     value = item.get(name)
 
     if not isinstance(value, dict) or set(value) != {"S"}:
-        raise CandidateValidationError(
-            f"Invalid DynamoDB string attribute: {name}"
-        )
+        raise CandidateValidationError(f"Invalid DynamoDB string attribute: {name}")
 
     result = value["S"]
 
     if not isinstance(result, str) or not result:
-        raise CandidateValidationError(
-            f"Empty DynamoDB string attribute: {name}"
-        )
+        raise CandidateValidationError(f"Empty DynamoDB string attribute: {name}")
 
     return result
 
@@ -114,7 +103,7 @@ def validate_candidate(item, shard, shard_count, now):
         raise CandidateValidationError("Candidate must be a DynamoDB item")
 
     if not isinstance(now, datetime):
-        raise ValueError("now must be a datetime")
+        raise TypeError("now must be a datetime")
 
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
@@ -152,14 +141,9 @@ def validate_candidate(item, shard, shard_count, now):
     ):
         _validate_identifier(value, name)
 
-    expected_pk = (
-        f"TENANT#{tenant_id}#SUBMISSION#{submission_id}"
-    )
+    expected_pk = f"TENANT#{tenant_id}#SUBMISSION#{submission_id}"
     expected_sk = f"DOCUMENT#{document_id}"
-    expected_key = (
-        f"tenants/{tenant_id}/submissions/"
-        f"{submission_id}/{document_id}"
-    )
+    expected_key = f"tenants/{tenant_id}/submissions/{submission_id}/{document_id}"
 
     if pk != expected_pk or sk != expected_sk:
         raise CandidateValidationError("Invalid document primary key")
@@ -192,19 +176,13 @@ def validate_candidate(item, shard, shard_count, now):
         raise CandidateValidationError("Invalid cleanup grace deadline")
 
     if finalize_dt != completed_dt + FINALIZATION_GRACE:
-        raise CandidateValidationError(
-            "Invalid finalization grace deadline"
-        )
+        raise CandidateValidationError("Invalid finalization grace deadline")
 
     if cleanup_dt > completed_dt:
-        raise CandidateValidationError(
-            "Cleanup completed before cleanup eligibility"
-        )
+        raise CandidateValidationError("Cleanup completed before cleanup eligibility")
 
-    if finalize_dt > now.astimezone(timezone.utc):
-        raise CandidateValidationError(
-            "Finalization grace period has not elapsed"
-        )
+    if finalize_dt > now.astimezone(UTC):
+        raise CandidateValidationError("Finalization grace period has not elapsed")
 
     expected_gsi4sk = f"{finalize_after}#{document_id}"
 
@@ -251,9 +229,7 @@ def get_exact_key_versions(page, object_key):
             version_id = entry.get("VersionId")
 
             if not isinstance(version_id, str) or not version_id:
-                raise S3InspectionError(
-                    "Exact-key S3 entry has no VersionId"
-                )
+                raise S3InspectionError("Exact-key S3 entry has no VersionId")
 
             matching.append(
                 {
@@ -315,22 +291,14 @@ def verify_object_key_empty(s3, bucket_name, object_key):
         next_version_marker = page.get("NextVersionIdMarker")
 
         if not isinstance(next_key_marker, str) or not next_key_marker:
-            raise S3InspectionError(
-                "Truncated S3 response has no next key marker"
-            )
+            raise S3InspectionError("Truncated S3 response has no next key marker")
 
         if next_version_marker is not None and (
-            not isinstance(next_version_marker, str)
-            or not next_version_marker
+            not isinstance(next_version_marker, str) or not next_version_marker
         ):
-            raise S3InspectionError(
-                "Invalid S3 next version marker"
-            )
+            raise S3InspectionError("Invalid S3 next version marker")
 
-        if (
-            next_key_marker == key_marker
-            and next_version_marker == version_id_marker
-        ):
+        if next_key_marker == key_marker and next_version_marker == version_id_marker:
             raise S3InspectionError("S3 pagination marker did not advance")
 
         key_marker = next_key_marker
@@ -338,12 +306,8 @@ def verify_object_key_empty(s3, bucket_name, object_key):
 
 
 def requeue_document(dynamodb, table_name, candidate, now):
-    pending_partition = (
-        f"CLEANUP_PENDING#{candidate['shard']:02d}"
-    )
-    pending_sort_key = (
-        f"{candidate['cleanup_after']}#{candidate['document_id']}"
-    )
+    pending_partition = f"CLEANUP_PENDING#{candidate['shard']:02d}"
+    pending_sort_key = f"{candidate['cleanup_after']}#{candidate['document_id']}"
 
     try:
         dynamodb.update_item(
@@ -462,9 +426,7 @@ def delete_finalized_document(
                 ":object_key": {"S": candidate["object_key"]},
                 ":expires_at": {"S": candidate["expires_at"]},
                 ":cleanup_after": {"S": candidate["cleanup_after"]},
-                ":cleanup_completed_at": {
-                    "S": candidate["cleanup_completed_at"]
-                },
+                ":cleanup_completed_at": {"S": candidate["cleanup_completed_at"]},
                 ":finalize_after": {"S": candidate["finalize_after"]},
                 ":gsi4pk": {"S": candidate["gsi4pk"]},
                 ":gsi4sk": {"S": candidate["gsi4sk"]},
@@ -528,9 +490,7 @@ def _time_remaining(context):
     if context is None:
         return True
 
-    return (
-        context.get_remaining_time_in_millis() > TIME_BUFFER_MS
-    )
+    return context.get_remaining_time_in_millis() > TIME_BUFFER_MS
 
 
 def query_finalization_shard(
@@ -545,39 +505,28 @@ def query_finalization_shard(
     result = _empty_result()
     exclusive_start_key = None
 
-    while (
-        result["processed"] < max_items
-        and _time_remaining(context)
-    ):
+    while result["processed"] < max_items and _time_remaining(context):
         remaining = max_items - result["processed"]
 
         query_arguments = {
             "TableName": config["table_name"],
             "IndexName": config["index_name"],
-            "KeyConditionExpression": (
-                "GSI4PK = :shard AND GSI4SK <= :cutoff"
-            ),
+            "KeyConditionExpression": ("GSI4PK = :shard AND GSI4SK <= :cutoff"),
             "ExpressionAttributeValues": {
                 ":shard": {"S": f"CLEANUP_COMPLETE#{shard:02d}"},
-                ":cutoff": {
-                    "S": f"{format_utc_timestamp(now)}#\uffff"
-                },
+                ":cutoff": {"S": f"{format_utc_timestamp(now)}#\uffff"},
             },
             "Limit": remaining,
         }
 
         if exclusive_start_key:
-            query_arguments["ExclusiveStartKey"] = (
-                exclusive_start_key
-            )
+            query_arguments["ExclusiveStartKey"] = exclusive_start_key
 
         response = dynamodb.query(**query_arguments)
         items = response.get("Items", [])
 
         if not isinstance(items, list):
-            raise RuntimeError(
-                "DynamoDB returned an invalid query result"
-            )
+            raise TypeError("DynamoDB returned an invalid query result")
 
         for item in items:
             if result["processed"] >= max_items:
@@ -597,9 +546,7 @@ def query_finalization_shard(
                 )
             except CandidateValidationError:
                 result["invalid"] += 1
-                logger.warning(
-                    "Skipped invalid finalization candidate"
-                )
+                logger.warning("Skipped invalid finalization candidate")
                 continue
 
             try:
@@ -625,10 +572,7 @@ def query_finalization_shard(
                     candidate["document_id"],
                 )
 
-        if (
-            result["processed"] >= max_items
-            or not _time_remaining(context)
-        ):
+        if result["processed"] >= max_items or not _time_remaining(context):
             break
 
         exclusive_start_key = response.get("LastEvaluatedKey")
@@ -647,7 +591,7 @@ def finalize_completed_documents(
     context=None,
 ):
     if not isinstance(now, datetime):
-        raise ValueError("now must be a datetime")
+        raise TypeError("now must be a datetime")
 
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
@@ -723,7 +667,7 @@ def handler(event, context):
     dynamodb = boto3.client("dynamodb")
     s3 = boto3.client("s3")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     result = finalize_completed_documents(
         dynamodb,

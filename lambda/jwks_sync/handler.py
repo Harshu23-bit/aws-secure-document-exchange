@@ -1,3 +1,5 @@
+import base64
+import binascii
 import json
 import logging
 import os
@@ -5,13 +7,10 @@ import re
 import ssl
 import urllib.error
 import urllib.request
-import base64
-import binascii
 
 import boto3
-from botocore.exceptions import ClientError
 from botocore.config import Config
-
+from botocore.exceptions import ClientError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -66,9 +65,7 @@ def build_jwks_url(region: str, user_pool_id: str) -> str:
     pool_region = user_pool_id.split("_", 1)[0]
 
     if pool_region != region:
-        raise ValueError(
-            "Cognito User Pool region does not match AWS region"
-        )
+        raise ValueError("Cognito User Pool region does not match AWS region")
 
     return (
         f"https://cognito-idp.{region}.amazonaws.com/"
@@ -100,9 +97,7 @@ def decode_base64url_uint(value) -> int:
         if decoded[0] == 0:
             raise ValueError("Non-minimal integer encoding")
 
-        canonical = base64.urlsafe_b64encode(
-            decoded
-        ).rstrip(b"=").decode("ascii")
+        canonical = base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii")
 
         if canonical != value:
             raise ValueError("Non-canonical encoding")
@@ -110,9 +105,7 @@ def decode_base64url_uint(value) -> int:
         return int.from_bytes(decoded, "big")
 
     except (ValueError, binascii.Error) as exc:
-        raise JWKSValidationError(
-            "Invalid Base64URL RSA integer"
-        ) from exc
+        raise JWKSValidationError("Invalid Base64URL RSA integer") from exc
 
 
 def validate_rsa_jwk(key: dict) -> None:
@@ -127,11 +120,7 @@ def validate_rsa_jwk(key: dict) -> None:
     if modulus % 2 == 0:
         raise JWKSValidationError("RSA modulus must be odd")
 
-    if (
-        exponent < 3
-        or exponent > MAX_RSA_EXPONENT
-        or exponent % 2 == 0
-    ):
+    if exponent < 3 or exponent > MAX_RSA_EXPONENT or exponent % 2 == 0:
         raise JWKSValidationError("Invalid RSA public exponent")
 
 
@@ -144,9 +133,7 @@ def validate_jwks(document: dict) -> int:
     keys = document.get("keys")
 
     if not isinstance(keys, list) or not keys:
-        raise JWKSValidationError(
-            "JWKS must contain a non-empty keys array"
-        )
+        raise JWKSValidationError("JWKS must contain a non-empty keys array")
 
     if len(keys) > MAX_KEYS:
         raise JWKSValidationError("Unexpectedly large JWKS key set")
@@ -160,17 +147,11 @@ def validate_jwks(document: dict) -> int:
         required_fields = {"kid", "kty", "alg", "use", "n", "e"}
 
         if not required_fields.issubset(key):
-            raise JWKSValidationError(
-                "JWKS key is missing required fields"
-            )
+            raise JWKSValidationError("JWKS key is missing required fields")
 
         kid = key["kid"]
 
-        if (
-            not isinstance(kid, str)
-            or not kid
-            or len(kid) > MAX_KID_LENGTH
-        ):
+        if not isinstance(kid, str) or not kid or len(kid) > MAX_KID_LENGTH:
             raise JWKSValidationError("Invalid signing key ID")
 
         if kid in seen_kids:
@@ -214,9 +195,7 @@ def fetch_jwks(url: str) -> bytes:
 
     opener = urllib.request.build_opener(
         RejectRedirectHandler(),
-        urllib.request.HTTPSHandler(
-            context=ssl.create_default_context()
-        ),
+        urllib.request.HTTPSHandler(context=ssl.create_default_context()),
     )
 
     request = urllib.request.Request(
@@ -233,7 +212,6 @@ def fetch_jwks(url: str) -> bytes:
             request,
             timeout=HTTP_TIMEOUT_SECONDS,
         ) as response:
-
             if response.status != 200:
                 raise JWKSValidationError(
                     f"Unexpected JWKS HTTP status: {response.status}"
@@ -242,9 +220,7 @@ def fetch_jwks(url: str) -> bytes:
             content = response.read(MAX_RESPONSE_BYTES + 1)
 
     except urllib.error.HTTPError as exc:
-        raise JWKSValidationError(
-            f"JWKS endpoint returned HTTP {exc.code}"
-        ) from exc
+        raise JWKSValidationError(f"JWKS endpoint returned HTTP {exc.code}") from exc
 
     if len(content) > MAX_RESPONSE_BYTES:
         raise JWKSValidationError("JWKS response exceeds size limit")
@@ -259,9 +235,7 @@ def reject_duplicate_json_keys(pairs):
 
     for key, value in pairs:
         if key in result:
-            raise JWKSValidationError(
-                "JWKS contains duplicate JSON properties"
-            )
+            raise JWKSValidationError("JWKS contains duplicate JSON properties")
 
         result[key] = value
 
@@ -271,9 +245,7 @@ def reject_duplicate_json_keys(pairs):
 def reject_json_constant(value):
     """Reject non-standard JSON constants such as NaN and Infinity."""
 
-    raise JWKSValidationError(
-        f"JWKS contains an invalid JSON constant: {value}"
-    )
+    raise JWKSValidationError(f"JWKS contains an invalid JSON constant: {value}")
 
 
 def canonicalize_jwks(raw_document: bytes) -> tuple[bytes, int]:
@@ -299,9 +271,7 @@ def canonicalize_jwks(raw_document: bytes) -> tuple[bytes, int]:
         UnicodeDecodeError,
         RecursionError,
     ) as exc:
-        raise JWKSValidationError(
-            "JWKS response is not valid JSON"
-        ) from exc
+        raise JWKSValidationError("JWKS response is not valid JSON") from exc
 
     key_count = validate_jwks(document)
 
@@ -313,6 +283,7 @@ def canonicalize_jwks(raw_document: bytes) -> tuple[bytes, int]:
     ).encode("utf-8")
 
     return canonical_document, key_count
+
 
 def get_existing_object(s3, bucket: str, key: str):
     """Retrieve the current object, returning None when it doesn't exist."""
@@ -470,8 +441,7 @@ def handler(event, context):
         )
 
         logger.info(
-            "JWKS synchronization successful: "
-            "key_count=%s changed=%s",
+            "JWKS synchronization successful: key_count=%s changed=%s",
             key_count,
             changed,
         )

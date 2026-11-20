@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
+
 from app.schemas.workflow import SubmissionStatus
+
 
 class SubmissionCreateRequest(BaseModel):
     model_config = ConfigDict(

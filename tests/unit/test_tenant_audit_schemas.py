@@ -87,9 +87,7 @@ def test_tenant_audit_union_accepts_valid_events(payload, expected_model):
         (membership_deactivation_event(), "new_status", "DELETED"),
     ],
 )
-def test_tenant_audit_union_rejects_invalid_values(
-    payload, field, invalid_value
-):
+def test_tenant_audit_union_rejects_invalid_values(payload, field, invalid_value):
     payload[field] = invalid_value
 
     with pytest.raises(ValidationError):

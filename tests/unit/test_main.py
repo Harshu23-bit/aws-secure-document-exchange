@@ -21,7 +21,7 @@ def valid_production_settings(**overrides):
         "debug": False,
         "cognito_region": "ap-south-1",
         "cognito_user_pool_id": "ap-south-1_AbCdEf123",
-        "cognito_api_client_id": "abcdefghijklmnopqrstuvwxyz123456",
+        "cognito_api_client_id": "testclient123",
     }
     values.update(overrides)
     return Settings(**values)

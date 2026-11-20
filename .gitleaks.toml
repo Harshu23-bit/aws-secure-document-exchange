@@ -1,10 +1,2 @@
 [extend]
 useDefault = true
-
-[[allowlists]]
-description = "Allow only the empty KMS ARN placeholder in the environment example"
-condition = "AND"
-paths = ['''\.env\.example$''']
-ruleIDs = ["generic-api-key"]
-regexTarget = "line"
-regexes = ['''^DOCUMENTS_KMS_KEY_ARN=$''']

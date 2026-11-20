@@ -2,20 +2,16 @@ import hashlib
 import logging
 import os
 import re
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import boto3
 from botocore.exceptions import ClientError
-
 
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO").upper())
 
 TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
-IDENTIFIER_PATTERN = re.compile(
-    r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
-)
+IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 MAX_SHARD_COUNT = 16
 MAX_ITEMS_LIMIT = 100
@@ -70,9 +66,7 @@ def get_config():
         shard_count = int(os.environ.get("SHARD_COUNT", "4"))
         max_items = int(os.environ.get("MAX_ITEMS", "50"))
     except ValueError as exc:
-        raise ConfigurationError(
-            "SHARD_COUNT and MAX_ITEMS must be integers"
-        ) from exc
+        raise ConfigurationError("SHARD_COUNT and MAX_ITEMS must be integers") from exc
 
     if not 1 <= shard_count <= MAX_SHARD_COUNT:
         raise ConfigurationError("Invalid SHARD_COUNT")
@@ -91,7 +85,7 @@ def get_config():
 
 def format_utc_timestamp(value):
     if not isinstance(value, datetime):
-        raise ValueError("Expected datetime")
+        raise TypeError("Expected datetime")
 
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("A timezone-aware UTC datetime is required")
@@ -106,14 +100,12 @@ def parse_utc_timestamp(value):
     try:
         parsed = datetime.strptime(value, TIMESTAMP_FORMAT)
     except ValueError as exc:
-        raise CandidateValidationError(
-            "Invalid timestamp"
-        ) from exc
+        raise CandidateValidationError("Invalid timestamp") from exc
 
     if parsed.strftime(TIMESTAMP_FORMAT) != value:
         raise CandidateValidationError("Noncanonical timestamp")
 
-    return parsed.replace(tzinfo=timezone.utc)
+    return parsed.replace(tzinfo=UTC)
 
 
 def get_document_hygiene_shard(document_id, shard_count):
@@ -131,9 +123,7 @@ def get_document_hygiene_shard(document_id, shard_count):
     ):
         raise ValueError("Invalid shard count")
 
-    digest = hashlib.sha256(
-        document_id.encode("utf-8")
-    ).digest()
+    digest = hashlib.sha256(document_id.encode("utf-8")).digest()
 
     return digest[0] % shard_count
 
@@ -142,25 +132,18 @@ def _string_attribute(item, name):
     value = item.get(name)
 
     if not isinstance(value, dict) or set(value) != {"S"}:
-        raise CandidateValidationError(
-            f"Invalid DynamoDB string attribute: {name}"
-        )
+        raise CandidateValidationError(f"Invalid DynamoDB string attribute: {name}")
 
     result = value["S"]
 
     if not isinstance(result, str) or not result:
-        raise CandidateValidationError(
-            f"Empty DynamoDB string attribute: {name}"
-        )
+        raise CandidateValidationError(f"Empty DynamoDB string attribute: {name}")
 
     return result
 
 
 def _validate_identifier(value, name):
-    if (
-        not IDENTIFIER_PATTERN.fullmatch(value)
-        or value in {".", ".."}
-    ):
+    if not IDENTIFIER_PATTERN.fullmatch(value) or value in {".", ".."}:
         raise CandidateValidationError(f"Invalid {name}")
 
 
@@ -169,7 +152,7 @@ def validate_candidate(item, shard, shard_count, now):
         raise CandidateValidationError("Invalid DynamoDB candidate")
 
     if not isinstance(now, datetime):
-        raise ValueError("now must be a datetime")
+        raise TypeError("now must be a datetime")
 
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
@@ -177,9 +160,7 @@ def validate_candidate(item, shard, shard_count, now):
     entity_type = _string_attribute(item, "entity_type")
 
     if entity_type != "DOCUMENT":
-        raise CandidateValidationError(
-            "Candidate is not a document entity"
-        )
+        raise CandidateValidationError("Candidate is not a document entity")
 
     tenant_id = _string_attribute(item, "tenant_id")
     submission_id = _string_attribute(item, "submission_id")
@@ -212,18 +193,13 @@ def validate_candidate(item, shard, shard_count, now):
         _validate_identifier(value, name)
 
     if version_id == "null":
-        raise CandidateValidationError(
-            "Accepted S3 version ID is not valid"
-        )
+        raise CandidateValidationError("Accepted S3 version ID is not valid")
 
-    expected_pk = (
-        f"TENANT#{tenant_id}#SUBMISSION#{submission_id}"
-    )
+    expected_pk = f"TENANT#{tenant_id}#SUBMISSION#{submission_id}"
     expected_sk = f"DOCUMENT#{document_id}"
 
     expected_object_key = (
-        f"tenants/{tenant_id}/submissions/"
-        f"{submission_id}/{document_id}"
+        f"tenants/{tenant_id}/submissions/{submission_id}/{document_id}"
     )
 
     if pk != expected_pk or sk != expected_sk:
@@ -240,11 +216,7 @@ def validate_candidate(item, shard, shard_count, now):
         shard_count,
     )
 
-    if (
-        isinstance(shard, bool)
-        or not isinstance(shard, int)
-        or shard != expected_shard
-    ):
+    if isinstance(shard, bool) or not isinstance(shard, int) or shard != expected_shard:
         raise CandidateValidationError("Incorrect hygiene shard")
 
     expected_gsi3pk = f"UPLOADED#{expected_shard:02d}"
@@ -264,19 +236,13 @@ def validate_candidate(item, shard, shard_count, now):
     if hygiene_dt != upload_expiry_dt + UPLOAD_HYGIENE_GRACE:
         raise CandidateValidationError("Invalid hygiene deadline")
 
-    if hygiene_dt > now.astimezone(timezone.utc):
-        raise CandidateValidationError(
-            "Upload hygiene grace period has not elapsed"
-        )
+    if hygiene_dt > now.astimezone(UTC):
+        raise CandidateValidationError("Upload hygiene grace period has not elapsed")
 
-    expected_gsi3sk = (
-        f"{upload_hygiene_after}#{document_id}"
-    )
+    expected_gsi3sk = f"{upload_hygiene_after}#{document_id}"
 
     if gsi3sk != expected_gsi3sk:
-        raise CandidateValidationError(
-            "Invalid hygiene sort key"
-        )
+        raise CandidateValidationError("Invalid hygiene sort key")
 
     return {
         "pk": pk,
@@ -300,10 +266,7 @@ def has_time_remaining(context):
     if context is None:
         return True
 
-    return (
-        context.get_remaining_time_in_millis()
-        > TIME_BUFFER_MS
-    )
+    return context.get_remaining_time_in_millis() > TIME_BUFFER_MS
 
 
 def list_object_versions_page(
@@ -346,15 +309,11 @@ def get_exact_key_versions(page, object_key):
         entries = page.get(collection_name, [])
 
         if not isinstance(entries, list):
-            raise S3HygieneError(
-                "Invalid S3 version collection"
-            )
+            raise S3HygieneError("Invalid S3 version collection")
 
         for entry in entries:
             if not isinstance(entry, dict):
-                raise S3HygieneError(
-                    "Invalid S3 version entry"
-                )
+                raise S3HygieneError("Invalid S3 version entry")
 
             if entry.get("Key") != object_key:
                 continue
@@ -362,14 +321,14 @@ def get_exact_key_versions(page, object_key):
             version_id = entry.get("VersionId")
 
             if not isinstance(version_id, str) or not version_id:
-                raise S3HygieneError(
-                    "Exact-key entry has no version ID"
-                )
+                raise S3HygieneError("Exact-key entry has no version ID")
 
-            result[result_name].append({
-                "Key": object_key,
-                "VersionId": version_id,
-            })
+            result[result_name].append(
+                {
+                    "Key": object_key,
+                    "VersionId": version_id,
+                }
+            )
 
     return result
 
@@ -392,9 +351,7 @@ def collect_exact_key_versions(
 
     while True:
         if not has_time_remaining(context):
-            raise S3HygieneError(
-                "Insufficient Lambda execution time for S3 pagination"
-            )
+            raise S3HygieneError("Insufficient Lambda execution time for S3 pagination")
 
         page = list_object_versions_page(
             s3,
@@ -409,38 +366,25 @@ def collect_exact_key_versions(
             object_key,
         )
 
-        page_version_count = (
-            len(page_entries["versions"])
-            + len(page_entries["delete_markers"])
-        )
-
-        collected_version_count = (
-            len(collected["versions"])
-            + len(collected["delete_markers"])
-        )
-
-        if (
-            collected_version_count + page_version_count
-            > MAX_S3_VERSIONS_PER_DOCUMENT
-        ):
-            raise S3HygieneError(
-                "S3 version history exceeds configured limit"
-            )
-
-        collected["versions"].extend(
-            page_entries["versions"]
-        )
-
-        collected["delete_markers"].extend(
+        page_version_count = len(page_entries["versions"]) + len(
             page_entries["delete_markers"]
         )
+
+        collected_version_count = len(collected["versions"]) + len(
+            collected["delete_markers"]
+        )
+
+        if collected_version_count + page_version_count > MAX_S3_VERSIONS_PER_DOCUMENT:
+            raise S3HygieneError("S3 version history exceeds configured limit")
+
+        collected["versions"].extend(page_entries["versions"])
+
+        collected["delete_markers"].extend(page_entries["delete_markers"])
 
         truncated = page.get("IsTruncated", False)
 
         if not isinstance(truncated, bool):
-            raise S3HygieneError(
-                "Invalid S3 pagination indicator"
-            )
+            raise S3HygieneError("Invalid S3 pagination indicator")
 
         if not truncated:
             break
@@ -449,25 +393,15 @@ def collect_exact_key_versions(
         next_version_marker = page.get("NextVersionIdMarker")
 
         if not isinstance(next_key_marker, str) or not next_key_marker:
-            raise S3HygieneError(
-                "Truncated S3 response has no next key marker"
-            )
+            raise S3HygieneError("Truncated S3 response has no next key marker")
 
         if next_version_marker is not None and (
-            not isinstance(next_version_marker, str)
-            or not next_version_marker
+            not isinstance(next_version_marker, str) or not next_version_marker
         ):
-            raise S3HygieneError(
-                "Invalid S3 next version marker"
-            )
+            raise S3HygieneError("Invalid S3 next version marker")
 
-        if (
-            next_key_marker == key_marker
-            and next_version_marker == version_id_marker
-        ):
-            raise S3HygieneError(
-                "S3 pagination marker did not advance"
-            )
+        if next_key_marker == key_marker and next_version_marker == version_id_marker:
+            raise S3HygieneError("S3 pagination marker did not advance")
 
         key_marker = next_key_marker
         version_id_marker = next_version_marker
@@ -480,21 +414,14 @@ def verify_accepted_version_exists(
     accepted_version_id,
 ):
     if not isinstance(collected, dict):
-        raise S3HygieneError(
-            "Invalid collected S3 version data"
-        )
+        raise S3HygieneError("Invalid collected S3 version data")
 
     versions = collected.get("versions")
 
     if not isinstance(versions, list):
-        raise S3HygieneError(
-            "Invalid S3 versions collection"
-        )
+        raise S3HygieneError("Invalid S3 versions collection")
 
-    return any(
-        version["VersionId"] == accepted_version_id
-        for version in versions
-    )
+    return any(version["VersionId"] == accepted_version_id for version in versions)
 
 
 def delete_unaccepted_versions(
@@ -507,22 +434,16 @@ def delete_unaccepted_versions(
     context=None,
 ):
     if not isinstance(versions, list):
-        raise S3HygieneError(
-            "Invalid S3 versions collection"
-        )
+        raise S3HygieneError("Invalid S3 versions collection")
 
     if delete_markers is None:
         delete_markers = []
 
     if not isinstance(delete_markers, list):
-        raise S3HygieneError(
-            "Invalid S3 delete markers collection"
-        )
+        raise S3HygieneError("Invalid S3 delete markers collection")
 
     objects_to_delete = [
-        version
-        for version in versions
-        if version["VersionId"] != accepted_version_id
+        version for version in versions if version["VersionId"] != accepted_version_id
     ]
 
     objects_to_delete.extend(delete_markers)
@@ -533,13 +454,9 @@ def delete_unaccepted_versions(
         S3_DELETE_BATCH_SIZE,
     ):
         if not has_time_remaining(context):
-            raise S3HygieneError(
-                "Insufficient Lambda execution time for S3 deletion"
-            )
+            raise S3HygieneError("Insufficient Lambda execution time for S3 deletion")
 
-        batch = objects_to_delete[
-            offset:offset + S3_DELETE_BATCH_SIZE
-        ]
+        batch = objects_to_delete[offset : offset + S3_DELETE_BATCH_SIZE]
 
         response = s3.delete_objects(
             Bucket=bucket_name,
@@ -550,28 +467,23 @@ def delete_unaccepted_versions(
         )
 
         if not isinstance(response, dict):
-            raise S3HygieneError(
-                "Invalid S3 deletion response"
-            )
+            raise S3HygieneError("Invalid S3 deletion response")
 
         errors = response.get("Errors", [])
 
         if not isinstance(errors, list):
-            raise S3HygieneError(
-                "Invalid S3 deletion response"
-            )
+            raise S3HygieneError("Invalid S3 deletion response")
 
         if errors:
-            error_codes = sorted({
-                str(error.get("Code", "Unknown"))[:64]
-                for error in errors
-                if isinstance(error, dict)
-            })
-
-            raise S3HygieneError(
-                "S3 version deletion failed: "
-                + ",".join(error_codes)
+            error_codes = sorted(
+                {
+                    str(error.get("Code", "Unknown"))[:64]
+                    for error in errors
+                    if isinstance(error, dict)
+                }
             )
+
+            raise S3HygieneError("S3 version deletion failed: " + ",".join(error_codes))
 
 
 def verify_accepted_version_only(
@@ -592,19 +504,13 @@ def verify_accepted_version_only(
     delete_markers = remaining["delete_markers"]
 
     if len(versions) != 1:
-        raise S3HygieneError(
-            "Unexpected S3 versions remain after hygiene"
-        )
+        raise S3HygieneError("Unexpected S3 versions remain after hygiene")
 
     if versions[0]["VersionId"] != accepted_version_id:
-        raise S3HygieneError(
-            "Accepted S3 version is not the only remaining version"
-        )
+        raise S3HygieneError("Accepted S3 version is not the only remaining version")
 
     if delete_markers:
-        raise S3HygieneError(
-            "Unexpected S3 delete markers remain after hygiene"
-        )
+        raise S3HygieneError("Unexpected S3 delete markers remain after hygiene")
 
     return True
 
@@ -623,9 +529,7 @@ def remove_hygiene_index(
                 "PK": {"S": candidate["pk"]},
                 "SK": {"S": candidate["sk"]},
             },
-            UpdateExpression=(
-                "REMOVE GSI3PK, GSI3SK"
-            ),
+            UpdateExpression=("REMOVE GSI3PK, GSI3SK"),
             ConditionExpression=(
                 "#status = :uploaded "
                 "AND entity_type = :document "
@@ -652,12 +556,8 @@ def remove_hygiene_index(
                 ":object_key": {"S": candidate["object_key"]},
                 ":version_id": {"S": candidate["version_id"]},
                 ":expires_at": {"S": candidate["expires_at"]},
-                ":upload_url_expires_at": {
-                    "S": candidate["upload_url_expires_at"]
-                },
-                ":upload_hygiene_after": {
-                    "S": candidate["upload_hygiene_after"]
-                },
+                ":upload_url_expires_at": {"S": candidate["upload_url_expires_at"]},
+                ":upload_hygiene_after": {"S": candidate["upload_hygiene_after"]},
                 ":gsi3pk": {"S": candidate["gsi3pk"]},
                 ":gsi3sk": {"S": candidate["gsi3sk"]},
             },
@@ -700,9 +600,7 @@ def cleanup_candidate(
         collected,
         accepted_version_id,
     ):
-        raise S3HygieneError(
-            "Accepted S3 version is missing; no versions were deleted"
-        )
+        raise S3HygieneError("Accepted S3 version is missing; no versions were deleted")
 
     delete_unaccepted_versions(
         s3,
@@ -745,43 +643,28 @@ def query_hygiene_shard(
     result = _empty_result()
     exclusive_start_key = None
 
-    while (
-        result["processed"] < max_items
-        and has_time_remaining(context)
-    ):
+    while result["processed"] < max_items and has_time_remaining(context):
         remaining = max_items - result["processed"]
 
         query_arguments = {
             "TableName": config["table_name"],
             "IndexName": config["index_name"],
-            "KeyConditionExpression": (
-                "GSI3PK = :shard AND GSI3SK <= :cutoff"
-            ),
+            "KeyConditionExpression": ("GSI3PK = :shard AND GSI3SK <= :cutoff"),
             "ExpressionAttributeValues": {
-                ":shard": {
-                    "S": f"UPLOADED#{shard:02d}"
-                },
-                ":cutoff": {
-                    "S": (
-                        f"{format_utc_timestamp(now)}#\uffff"
-                    )
-                },
+                ":shard": {"S": f"UPLOADED#{shard:02d}"},
+                ":cutoff": {"S": (f"{format_utc_timestamp(now)}#\uffff")},
             },
             "Limit": remaining,
         }
 
         if exclusive_start_key:
-            query_arguments["ExclusiveStartKey"] = (
-                exclusive_start_key
-            )
+            query_arguments["ExclusiveStartKey"] = exclusive_start_key
 
         response = dynamodb.query(**query_arguments)
         items = response.get("Items", [])
 
         if not isinstance(items, list):
-            raise RuntimeError(
-                "DynamoDB returned an invalid query result"
-            )
+            raise TypeError("DynamoDB returned an invalid query result")
 
         for item in items:
             if result["processed"] >= max_items:
@@ -801,9 +684,7 @@ def query_hygiene_shard(
                 )
             except CandidateValidationError:
                 result["invalid"] += 1
-                logger.warning(
-                    "Skipped invalid document hygiene candidate"
-                )
+                logger.warning("Skipped invalid document hygiene candidate")
                 continue
 
             try:
@@ -827,10 +708,7 @@ def query_hygiene_shard(
                     candidate["document_id"],
                 )
 
-        if (
-            result["processed"] >= max_items
-            or not has_time_remaining(context)
-        ):
+        if result["processed"] >= max_items or not has_time_remaining(context):
             break
 
         exclusive_start_key = response.get("LastEvaluatedKey")
@@ -839,6 +717,7 @@ def query_hygiene_shard(
             break
 
     return result
+
 
 def run_document_version_hygiene(
     dynamodb,
@@ -878,7 +757,7 @@ def handler(event, context):
     dynamodb = boto3.client("dynamodb")
     s3 = boto3.client("s3")
 
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = datetime.now(UTC).replace(microsecond=0)
 
     result = run_document_version_hygiene(
         dynamodb,
@@ -894,9 +773,7 @@ def handler(event, context):
     )
 
     if result["failed"]:
-        raise RuntimeError(
-            "One or more document version hygiene operations failed"
-        )
+        raise RuntimeError("One or more document version hygiene operations failed")
 
     return result
 

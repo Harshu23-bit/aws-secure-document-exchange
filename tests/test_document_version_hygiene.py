@@ -441,9 +441,7 @@ def test_collect_exact_key_versions_stops_above_limit():
                 truncated=page_number < 5,
                 next_key_marker=OBJECT_KEY if page_number < 5 else None,
                 next_version_marker=(
-                    f"marker-{page_number}"
-                    if page_number < 5
-                    else None
+                    f"marker-{page_number}" if page_number < 5 else None
                 ),
             )
         )
@@ -706,8 +704,7 @@ def test_deletion_stops_when_lambda_time_is_exhausted():
     context.get_remaining_time_in_millis.side_effect = [6000, 5000]
 
     versions = [
-        {"Key": OBJECT_KEY, "VersionId": f"version-{index}"}
-        for index in range(2002)
+        {"Key": OBJECT_KEY, "VersionId": f"version-{index}"} for index in range(2002)
     ]
     versions[0]["VersionId"] = ACCEPTED_VERSION_ID
 
