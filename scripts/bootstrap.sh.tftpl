@@ -1,0 +1,103 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+exec >> /var/log/cloudsec-bootstrap.log 2>&1
+
+echo "Starting CloudSec application bootstrap: $(date -Is)"
+
+trap 'echo "Bootstrap failed at line $LINENO: $BASH_COMMAND"' ERR
+
+if [[ -z "${application_image_digest}" ]]; then
+    echo "ERROR: Application image digest is not configured."
+    exit 1
+fi
+
+if ! command -v aws >/dev/null 2>&1; then
+    echo "ERROR: AWS CLI is unavailable."
+    exit 1
+fi
+
+dnf install -y docker
+
+systemctl enable --now docker
+
+install -d -o root -g root -m 0700 /etc/cloudsec
+
+cat > /etc/cloudsec/document-api.env <<'ENV'
+APP_NAME=Secure Multi-Tenant Document Exchange Platform
+APP_VERSION=0.1.0
+ENVIRONMENT=production
+DEBUG=false
+LOG_LEVEL=INFO
+AWS_REGION=${aws_region}
+SUBMISSIONS_TABLE_NAME=${submissions_table_name}
+MEMBERSHIPS_TABLE_NAME=${memberships_table_name}
+AUDIT_EVENTS_TABLE_NAME=${audit_events_table_name}
+DOCUMENTS_BUCKET_NAME=${documents_bucket_name}
+DOCUMENTS_KMS_KEY_ARN=${documents_kms_key_arn}
+COGNITO_REGION=${cognito_region}
+COGNITO_USER_POOL_ID=${cognito_user_pool_id}
+COGNITO_API_CLIENT_ID=${cognito_api_client_id}
+JWKS_BUCKET_NAME=${jwks_bucket_name}
+JWKS_OBJECT_KEY=${jwks_object_key}
+API_GATEWAY_STAGE_PREFIX=/api
+ENV
+
+chmod 0600 /etc/cloudsec/document-api.env
+
+cat > /usr/local/sbin/cloudsec-container-start <<'START'
+#!/bin/bash
+set -Eeuo pipefail
+
+ECR_REPOSITORY="${ecr_repository_url}"
+IMAGE_DIGEST="${application_image_digest}"
+REGION="${aws_region}"
+REGISTRY="$${ECR_REPOSITORY%%/*}"
+IMAGE="$${ECR_REPOSITORY}@$${IMAGE_DIGEST}"
+
+cleanup() {
+    docker logout "$${REGISTRY}" >/dev/null 2>&1 || true
+}
+
+trap cleanup EXIT
+
+aws ecr get-login-password --region "$${REGION}" |
+    docker login --username AWS --password-stdin "$${REGISTRY}"
+
+docker pull "$${IMAGE}"
+START
+
+chmod 0750 /usr/local/sbin/cloudsec-container-start
+chown root:root /usr/local/sbin/cloudsec-container-start
+
+cat > /etc/systemd/system/cloudsec-app.service <<'SERVICE'
+[Unit]
+Description=CloudSec Secure Document API Container
+StartLimitIntervalSec=300
+StartLimitBurst=5
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/sbin/cloudsec-container-start
+ExecStart=/usr/bin/docker run --rm --name cloudsec-document-api --user 10001:10001 --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m --cap-drop ALL --security-opt no-new-privileges:true --pids-limit 100 --memory 512m --publish 0.0.0.0:8080:8080 --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 --env-file /etc/cloudsec/document-api.env IMAGE_PLACEHOLDER
+ExecStop=/usr/bin/docker stop --time 20 cloudsec-document-api
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=300
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+sed -i "s|IMAGE_PLACEHOLDER|${ecr_repository_url}@${application_image_digest}|" \
+    /etc/systemd/system/cloudsec-app.service
+
+systemctl daemon-reload
+systemctl enable cloudsec-app.service
+systemctl start cloudsec-app.service
+
+echo "CloudSec application bootstrap completed: $(date -Is)"

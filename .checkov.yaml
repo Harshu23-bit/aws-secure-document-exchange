@@ -1,0 +1,12 @@
+directory:
+  - terraform
+
+framework:
+  - terraform
+
+output:
+  - cli
+
+compact: true
+
+quiet: false

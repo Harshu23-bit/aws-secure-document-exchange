@@ -1,0 +1,64 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+terraform.tfvars
+*.auto.tfvars
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# AWS credentials and secrets
+.aws/
+credentials
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+certs/
+
+# Additional sensitive files
+*.tfvars
+*.tfvars.json
+*.pem
+*.key
+
+# Build and temporary artifacts
+*.zip.tmp
+*.bak
+*.swp
+
+# Lambda deployment artifacts
+build/
+
+# Local environment files
+.python-version
+
+# Local AI agent skills
+.agents/
+.claude/
+.grok/
+skills-lock.json
+
+# Generated local Checkov report
+console/results_json.json

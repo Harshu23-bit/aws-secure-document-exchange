@@ -1,0 +1,7 @@
+FROM cloudsec-document-api:0.1.3
+
+USER root
+
+RUN rm -f /usr/bin/infocmp
+
+USER 10001:10001
